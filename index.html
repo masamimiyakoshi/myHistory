@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自分史年表</title>
+<style>
+  :root { --accent:#b3543a; --ink:#2b2622; --sub:#8a7f74; --line:#e3dcd2; --bg:#faf7f2; --card:#fff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Hiragino Mincho ProN","Yu Mincho",serif; background:var(--bg); color:var(--ink); }
+  header { padding:20px 16px 8px; max-width:760px; margin:0 auto; }
+  h1 { font-size:26px; margin:0 0 4px; letter-spacing:.08em; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 6px; }
+  button, .filebtn { font-family:inherit; font-size:14px; padding:8px 14px; border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:6px; cursor:pointer; }
+  button.ghost, .filebtn.ghost { background:transparent; color:var(--accent); }
+  button.small { padding:4px 10px; font-size:12px; }
+  input[type=file] { display:none; }
+  .birth { font-size:13px; color:var(--sub); margin-top:8px; }
+  .birth input { font-family:inherit; font-size:13px; padding:4px 6px; border:1px solid var(--line); border-radius:4px; }
+  main { max-width:760px; margin:0 auto; padding:0 16px 40px; }
+  .year { margin-top:28px; }
+  .year h2 { font-size:30px; margin:0; border-bottom:2px solid var(--ink); padding-bottom:4px; }
+  .year h2 .era { font-size:15px; color:var(--sub); margin-left:10px; font-weight:normal; }
+  .events { border-left:2px solid var(--line); margin-left:8px; padding-left:22px; }
+  .event { position:relative; padding:12px 0 4px; }
+  .event::before { content:""; position:absolute; left:-29px; top:20px; width:12px; height:12px; border-radius:50%; background:var(--bg); border:2px solid var(--accent); }
+  .date { font-size:13px; color:var(--sub); }
+  .date .age { color:var(--accent); margin-left:8px; }
+  .title { font-size:18px; margin:2px 0; }
+  .desc { font-size:14px; color:#4c443c; white-space:pre-wrap; margin:2px 0 6px; }
+  .event .edit { position:absolute; right:0; top:12px; }
+  .count { text-align:center; color:var(--sub); font-size:13px; margin-top:30px; }
+  dialog { border:1px solid var(--line); border-radius:10px; padding:20px; width:min(480px,92vw); font-family:inherit; }
+  dialog label { display:block; font-size:13px; color:var(--sub); margin:10px 0 4px; }
+  dialog input[type=text], dialog input[type=date], dialog textarea { width:100%; font-family:inherit; font-size:15px; padding:8px; border:1px solid var(--line); border-radius:6px; }
+  dialog textarea { min-height:90px; }
+  .dlg-btns { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
+  button.danger { background:#fff; color:#a33; border-color:#a33; margin-right:auto; }
+  .msg { font-size:13px; color:var(--accent); min-height:18px; margin-top:6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>自分史年表</h1>
+  <div class="toolbar">
+    <button id="addBtn">＋ 出来事を追加</button>
+    <label class="filebtn ghost" for="csvFile">CSV読み込み</label>
+    <input type="file" id="csvFile" accept=".csv,text/csv">
+    <button class="ghost" id="exportBtn">CSV書き出し</button>
+  </div>
+  <div class="msg" id="msg"></div>
+  <div class="birth">生年月日：<input type="date" id="birthInput"> を設定すると各出来事に年齢が表示されます（データはこのブラウザ内に保存されます）</div>
+</header>
+<main id="timeline"></main>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <div style="font-size:17px;">出来事の編集</div>
+    <label>日付</label>
+    <input type="date" id="fDate" required>
+    <label>タイトル</label>
+    <input type="text" id="fTitle" required>
+    <label>説明</label>
+    <textarea id="fDesc"></textarea>
+    <div class="dlg-btns">
+      <button type="button" class="danger" id="delBtn">削除</button>
+      <button type="button" class="ghost" id="cancelBtn" style="border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:6px;padding:8px 14px;cursor:pointer;">キャンセル</button>
+      <button type="submit" id="saveBtn">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const LS_KEY = 'jibunshi.events.v1';
+const LS_BIRTH = 'jibunshi.birth.v1';
+let events = load();
+let editId = null;
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch(e) { return []; }
+}
+function save() { localStorage.setItem(LS_KEY, JSON.stringify(events)); }
+
+function eraOf(y, m, d) {
+  const t = y*10000 + m*100 + d;
+  const eras = [
+    [20190501, '令和'], [19890108, '平成'], [19261225, '昭和'],
+    [19120730, '大正'], [18680125, '明治']
+  ];
+  const starts = { '令和':2019, '平成':1989, '昭和':1926, '大正':1912, '明治':1868 };
+  for (const [from, name] of eras) {
+    if (t >= from) return name + (y - starts[name] + 1) + '年';
+  }
+  return '';
+}
+function ageAt(birth, y, m, d) {
+  if (!birth) return null;
+  const [by, bm, bd] = birth.split('-').map(Number);
+  let age = y - by;
+  if (m < bm || (m === bm && d < bd)) age--;
+  return age;
+}
+function fmtDate(y, m, d) { return m + '月' + d + '日'; }
+
+function render() {
+  const main = document.getElementById('timeline');
+  const birth = localStorage.getItem(LS_BIRTH) || '';
+  const sorted = [...events].sort((a,b) => a.date.localeCompare(b.date));
+  const byYear = new Map();
+  for (const e of sorted) {
+    const y = Number(e.date.slice(0,4));
+    if (!byYear.has(y)) byYear.set(y, []);
+    byYear.get(y).push(e);
+  }
+  let html = '';
+  for (const [y, list] of byYear) {
+    const [fy, fm, fd] = list[0].date.split('-').map(Number);
+    html += '<section class="year"><h2>' + y + '<span class="era">' + eraOf(fy, fm, fd) + '</span></h2><div class="events">';
+    for (const e of list) {
+      const [ey, em, ed] = e.date.split('-').map(Number);
+      const age = ageAt(birth, ey, em, ed);
+      html += '<div class="event"><div class="date">' + fmtDate(ey, em, ed) +
+        (age !== null && age >= 0 ? '<span class="age">' + age + '歳</span>' : '') +
+        '</div><div class="title">' + esc(e.title) + '</div>' +
+        (e.desc ? '<div class="desc">' + esc(e.desc) + '</div>' : '') +
+        '<button class="small ghost edit" data-id="' + e.id + '" style="background:transparent;color:var(--accent);border:1px solid var(--accent);border-radius:6px;cursor:pointer;">編集</button></div>';
+    }
+    html += '</div></section>';
+  }
+  html += '<div class="count">全' + events.length + '件</div>';
+  main.innerHTML = html || '<p style="color:var(--sub)">まだ出来事がありません。「出来事を追加」か「CSV読み込み」から始めてください。</p>';
+  main.querySelectorAll('.edit').forEach(b => b.addEventListener('click', () => openDlg(b.dataset.id)));
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---- dialog ----
+const dlg = document.getElementById('dlg');
+function openDlg(id) {
+  editId = id || null;
+  const e = id ? events.find(x => x.id === id) : null;
+  document.getElementById('fDate').value = e ? e.date : '';
+  document.getElementById('fTitle').value = e ? e.title : '';
+  document.getElementById('fDesc').value = e ? e.desc : '';
+  document.getElementById('delBtn').style.display = e ? '' : 'none';
+  dlg.showModal();
+}
+document.getElementById('addBtn').addEventListener('click', () => openDlg(null));
+document.getElementById('cancelBtn').addEventListener('click', () => dlg.close());
+document.getElementById('delBtn').addEventListener('click', () => {
+  if (editId && confirm('この出来事を削除しますか？')) {
+    events = events.filter(x => x.id !== editId); save(); render(); dlg.close();
+  }
+});
+document.getElementById('dlgForm').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const date = document.getElementById('fDate').value;
+  const title = document.getElementById('fTitle').value.trim();
+  const desc = document.getElementById('fDesc').value.trim();
+  if (!date || !title) return;
+  if (editId) {
+    const e = events.find(x => x.id === editId);
+    Object.assign(e, { date, title, desc });
+  } else {
+    events.push({ id: Date.now() + '' + Math.floor(Math.random()*1e6), date, title, desc });
+  }
+  save(); render(); dlg.close();
+});
+
+// ---- birth date ----
+const birthInput = document.getElementById('birthInput');
+birthInput.value = localStorage.getItem(LS_BIRTH) || '';
+birthInput.addEventListener('change', () => {
+  localStorage.setItem(LS_BIRTH, birthInput.value); render();
+});
+
+// ---- CSV ----
+function parseDateCell(s) {
+  s = String(s || '').trim();
+  let m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/) || s.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日/);
+  if (!m) return null;
+  const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (isNaN(dt) || dt.getFullYear() !== Number(m[1]) || dt.getMonth() !== Number(m[2]) - 1 || dt.getDate() !== Number(m[3])) return null;
+  return m[1] + '-' + String(m[2]).padStart(2,'0') + '-' + String(m[3]).padStart(2,'0');
+}
+function parseCSV(text) {
+  const rows = []; let row = [], cur = '', q = false;
+  text = text.replace(/^\uFEFF/, '');
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i+1] === '"') { cur += '"'; i++; } else q = false; }
+      else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { row.push(cur); cur = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i+1] === '\n') i++;
+      row.push(cur); cur = '';
+      if (row.length > 1 || row[0] !== '') rows.push(row);
+      row = [];
+    } else cur += c;
+  }
+  row.push(cur);
+  if (row.length > 1 || row[0] !== '') rows.push(row);
+  return rows;
+}
+document.getElementById('csvFile').addEventListener('change', ev => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const rows = parseCSV(String(reader.result));
+    let added = 0; const errors = [];
+    rows.forEach((r, idx) => {
+      if (idx === 0 && /日付|date/i.test(r[0] || '')) return; // header
+      const date = parseDateCell(r[0]);
+      const title = (r[1] || '').trim();
+      if (!date || !title) { errors.push((idx + 1) + '行目'); return; }
+      events.push({ id: Date.now() + '' + idx + '' + Math.floor(Math.random()*1e6), date, title, desc: (r[2] || '').trim() });
+      added++;
+    });
+    save(); render();
+    document.getElementById('msg').textContent = added + '件を取り込みました' + (errors.length ? '（読み取れなかった行：' + errors.join('、') + '）' : '');
+    ev.target.value = '';
+  };
+  reader.readAsText(file, 'UTF-8');
+});
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const sorted = [...events].sort((a,b) => a.date.localeCompare(b.date));
+  const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  let csv = '日付,タイトル,説明\r\n';
+  for (const e of sorted) {
+    const [y, m, d] = e.date.split('-').map(Number);
+    csv += [y + '/' + m + '/' + d, q(e.title), q(e.desc)].join(',') + '\r\n';
+  }
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'jibunshi.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  document.getElementById('msg').textContent = events.length + '件をCSVに書き出しました';
+});
+
+render();
+</script>
+</body>
+</html>
