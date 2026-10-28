@@ -48,6 +48,7 @@
     <input type="file" id="csvFile">
     <button class="ghost" id="fetchBtn">data.csvを読み込む</button>
     <button class="ghost" id="exportBtn">CSV書き出し</button>
+    <button class="ghost" id="clearBtn" style="color:#a33;border-color:#a33;">すべて削除</button>
   </div>
   <div class="msg" id="msg"></div>
   <div class="birth">生年月日：<input type="date" id="birthInput"> を設定すると各出来事に年齢が表示されます（データはこのブラウザ内に保存されます）</div>
@@ -236,6 +237,13 @@ document.getElementById('fetchBtn').addEventListener('click', async () => {
   } catch (e) {
     msg.textContent = 'data.csv が見つかりませんでした。リポジトリに data.csv を置いてから押してください。';
   }
+});
+document.getElementById('clearBtn').addEventListener('click', () => {
+  if (events.length === 0) { document.getElementById('msg').textContent = '削除する出来事がありません'; return; }
+  if (!confirm('年表の出来事をすべて（' + events.length + '件）削除します。よろしいですか？')) return;
+  if (!confirm('本当にすべて削除しますか？この操作は取り消せません。')) return;
+  events = []; save(); render();
+  document.getElementById('msg').textContent = 'すべて削除しました';
 });
 document.getElementById('exportBtn').addEventListener('click', () => {
   const sorted = [...events].sort((a,b) => a.date.localeCompare(b.date));
