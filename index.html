@@ -46,6 +46,7 @@
     <button id="addBtn">＋ 出来事を追加</button>
     <label class="filebtn ghost" for="csvFile">CSV読み込み</label>
     <input type="file" id="csvFile">
+    <button class="ghost" id="fetchBtn">data.csvを読み込む</button>
     <button class="ghost" id="exportBtn">CSV書き出し</button>
   </div>
   <div class="msg" id="msg"></div>
@@ -205,12 +206,8 @@ function parseCSV(text) {
   if (row.length > 1 || row[0] !== '') rows.push(row);
   return rows;
 }
-document.getElementById('csvFile').addEventListener('change', ev => {
-  const file = ev.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const rows = parseCSV(String(reader.result));
+function importCSVText(text) {
+    const rows = parseCSV(text);
     let added = 0; const errors = [];
     rows.forEach((r, idx) => {
       if (idx === 0 && /日付|date/i.test(r[0] || '')) return; // header
@@ -222,9 +219,23 @@ document.getElementById('csvFile').addEventListener('change', ev => {
     });
     save(); render();
     document.getElementById('msg').textContent = added + '件を取り込みました' + (errors.length ? '（読み取れなかった行：' + errors.join('、') + '）' : '');
-    ev.target.value = '';
-  };
+}
+document.getElementById('csvFile').addEventListener('change', ev => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { importCSVText(String(reader.result)); ev.target.value = ''; };
   reader.readAsText(file, 'UTF-8');
+});
+document.getElementById('fetchBtn').addEventListener('click', async () => {
+  const msg = document.getElementById('msg');
+  try {
+    const res = await fetch('data.csv', { cache: 'no-store' });
+    if (!res.ok) throw new Error('not found');
+    importCSVText(await res.text());
+  } catch (e) {
+    msg.textContent = 'data.csv が見つかりませんでした。リポジトリに data.csv を置いてから押してください。';
+  }
 });
 document.getElementById('exportBtn').addEventListener('click', () => {
   const sorted = [...events].sort((a,b) => a.date.localeCompare(b.date));
